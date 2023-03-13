@@ -69,6 +69,44 @@ object CancellingIOs extends IOApp.Simple {
       Poll calls are "gaps opened" in the uncancelable region.
      */
 
+  /**
+   * Exercises: what do you think the following effects will do?
+   * 1. Anticipate
+   * 2. Run to see if you're correct
+   * 3. Prove your theory
+   */
+  // 1
+  val cancelBeforeMol = IO.canceled >> IO(42).myDebug
+  val uncancelableMol = IO.uncancelable(_ => IO.canceled >> IO(42).myDebug)
+  // uncancelable will eliminate ALL cancel points
+
+  // 2
+  val invincibleAuthProgram = for {
+    authFib <- IO.uncancelable(_ => authFlow).start
+    _ <- IO.sleep(1.seconds) >> IO("Authentication timeout, attempting cancel...").myDebug >> authFib.cancel
+    _ <- authFib.join
+  } yield ()
+
+  /*
+    Lesson: Uncancelable calls are masks which suppress all existing cancelable gaps (including from a previous uncancelable).
+   */
+  def threeStepProgram(): IO[Unit] = {
+    val sequence = IO.uncancelable { poll =>
+      poll(IO("cancelable").myDebug >> IO.sleep(1.second) >> IO("cancelable end").myDebug) >>
+        IO("uncancelable").myDebug >> IO.sleep(1.second) >> IO("uncancelable end").myDebug >>
+        poll(IO("second cancelable").myDebug >> IO.sleep(1.second) >> IO("second cancelable end").myDebug)
+    }
+
+    for {
+      fib <- sequence.start
+      _ <- IO.sleep(1500.millis) >> IO("CANCELING").myDebug >> fib.cancel
+      _ <- fib.join
+    } yield ()
+  }
+
+  /*
+      Lesson: Uncancelable regions ignore cancellation signals, but that doesn't mean the next CANCELABLE region won't take them.
+     */
   // override def run: IO[Unit] = cancellationOfDoom.void
   // override def run: IO[Unit] = noCancellationOfDoom
   //override def run: IO[Unit] = authFlow
