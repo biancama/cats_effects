@@ -17,6 +17,7 @@ abstract class Mutex {
 
 object Mutex {
   type Signal = Deferred[IO, Unit]
+  def createSignal(): IO[Signal] = Deferred[IO, Unit]
   case class State(locked: Boolean, waiting: Queue[Signal])
 
   val unlocked = State(false, Queue())
@@ -27,7 +28,12 @@ object Mutex {
             - if the mutex is currently unlocked, state becomes (true, [])
             - if the mutex is locked, state becomes (true, queue + new signal) AND WAIT ON THAT SIGNAL.
            */
-      override def acquire: IO[Unit] = ???
+      override def acquire: IO[Unit] = createSignal().flatMap { signal =>
+        state.modify { // IO[IO[Unit]]
+          case State(false, _) => State(true, Queue()) -> IO.unit
+          case State(true, q) => State(true, q.enqueue(signal)) -> signal.get
+        }.flatten // modify returns IO[B], our B is IO[Unit], so modify returns IO[IO[Unit]], we need to flatten
+      }
 
       /*
             Change the state of the Ref:
@@ -36,7 +42,13 @@ object Mutex {
               - if the queue is empty, unlock the mutex, i.e. state becomes (false, [])
               - if the queue is not empty, take a signal out of the queue and complete it (thereby unblocking a fiber waiting on it)
            */
-      override def release: IO[Unit] = ???
+      override def release: IO[Unit] = state.modify {
+        case s@State(false, _) => unlocked -> IO.unit
+        case State(true, Queue()) => unlocked -> IO.unit
+        case State(true, q) =>
+          val (sig, newQueue)  = q.dequeue
+          State(true, newQueue) -> sig.complete(()).void
+      }.flatten
     }
   }
 }
