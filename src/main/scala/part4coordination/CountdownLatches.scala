@@ -1,7 +1,7 @@
 package part4coordination
 
 import cats.effect.std.CountDownLatch
-import cats.effect.{IO, IOApp, Resource}
+import cats.effect.{Deferred, IO, IOApp, Ref, Resource}
 
 import scala.concurrent.duration.*
 import utils.*
@@ -105,7 +105,35 @@ object CountdownLatches extends IOApp.Simple {
     _ <- IO(s"[task $chunkIndex] chunk download complete").myDebug
     _ <- latch.release
   } yield ()
+  /**
+   * Exercise: implement your own CDLatch with Ref and Deferred.
+   */
 
+  abstract class CDLatch {
+    def await: IO[Unit]
+    def release: IO[Unit]
+  }
+
+  object CDLatch {
+    sealed trait State
+    case object Done extends State
+    case class Live(remainingCount: Int, signal: Deferred[IO, Unit]) extends State
+    def apply(count:Int ): IO[CDLatch] = for {
+      signal <- Deferred[IO, Unit]
+      state <- Ref[IO].of[State](Live(count, signal))
+    } yield new CDLatch {
+      override def await: IO[Unit] = state.get.flatMap { s =>
+        if (s == Done) IO.unit // continue, the latch is dead
+        else signal.get
+      }
+
+      override def release: IO[Unit] = state.modify {
+        case Done => Done -> IO.unit
+        case Live(1, s) => Done -> s.complete(()).void
+        case Live(n, s) =>  Live(n - 1, s) -> IO.unit
+      }.flatten.uncancelable
+    }
+  }
   //override def run: IO[Unit] = sprint()
   override def run: IO[Unit] = downloadFile("myScalaFile.txt", "src/main/resources")
 }
