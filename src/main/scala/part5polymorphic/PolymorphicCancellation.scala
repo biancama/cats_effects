@@ -80,7 +80,7 @@ object PolymorphicCancellation extends IOApp.Simple {
 
   // hint: use this instead of IO.sleep
   def unsafeSleep[F[_], E](duration: FiniteDuration)(using mc: MonadCancel[F, E]): F[Unit] =
-    mc.pure(Thread.sleep(duration.toMillis))
+    mc.pure(Thread.sleep(duration.toMillis))  // a thread inside pure is not cancellable
 
 
   val inputPassword = IO("Input password:").myDebug >> IO("(typing password)").myDebug >> IO.sleep(5.seconds) >> IO("RockTheJVM1!")
